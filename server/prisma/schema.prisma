@@ -1,0 +1,26 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Case {
+  id        Int      @id @default(autoincrement())
+  title     String
+  content   String   // FULL case text
+  analysis   Json?  // Structured AI investigation output
+  status String @default("Open")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt // general Prisma bookkeeping -- bumped by ANY update() call, including analysis generation. NOT reliable for staleness detection, see contentUpdatedAt.
+  contentUpdatedAt DateTime? // explicitly set ONLY when title/content actually change (see cases.service.js updateCase) -- this is what staleness detection actually compares against analyzedAt
+  analyzedAt DateTime? // explicitly set ONLY when AI analysis is (re)generated
+}
