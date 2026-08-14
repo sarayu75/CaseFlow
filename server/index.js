@@ -1,14 +1,9 @@
-import express from "express";
-import cors from "cors";
+import "dotenv/config";
+import { createApp } from "./src/app.js";
 
-const app = express();
-app.use(cors());
-app.use(express.json());
+const app = createApp();
+const PORT = process.env.PORT || 5001;
 
-app.get("/", (req, res) => {
-  res.send("CaseFlow API running");
-});
-
-app.listen(5000, () => {
-  console.log("Server running on port 5000");
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
