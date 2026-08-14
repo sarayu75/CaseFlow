@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment variables (client-side .env files can still hold
+# environment-specific config; keep out of version control by default)
+.env
+.env.local
