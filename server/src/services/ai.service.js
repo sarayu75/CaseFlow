@@ -4,6 +4,76 @@ import { openai } from "../lib/openai.js";
 // a friendly "temporarily unavailable" message instead of a generic 500.
 export class RateLimitError extends Error {}
 
+// A typed error for when the model returns malformed JSON or violates our
+// own internal-consistency rules even after one corrective retry. This is
+// distinct from RateLimitError -- it means the AI responded, just badly.
+export class InvalidAnalysisError extends Error {}
+
+// Validates the required shape and internal consistency of a parsed
+// analysis object. Returns an array of human-readable problem
+// descriptions (empty array = valid). Deliberately mirrors the checks in
+// server/eval/run-eval.js -- this is the same logic protecting production
+// traffic, not just the eval suite.
+function validateAnalysis(analysis) {
+  const errors = [];
+
+  const requiredFields = [
+    "executiveSummary",
+    "entities",
+    "timeline",
+    "evidence",
+    "witnessAnalysis",
+    "witnesses",
+    "contradictions",
+    "recommendedNextSteps",
+    "riskAssessment",
+    "relationships",
+  ];
+  for (const field of requiredFields) {
+    if (!(field in analysis)) {
+      errors.push(`missing required field "${field}"`);
+    }
+  }
+
+  // Regression check for a real bug found during manual testing: witnesses
+  // must match witnessAnalysis exactly.
+  if (Array.isArray(analysis.witnesses) && Array.isArray(analysis.witnessAnalysis)) {
+    const witnessNames = new Set(
+      analysis.witnesses.map((w) => String(w).toLowerCase().trim())
+    );
+    const analysisNames = new Set(
+      analysis.witnessAnalysis.map((w) => (w.name ?? "").toLowerCase().trim())
+    );
+    const mismatch =
+      witnessNames.size !== analysisNames.size ||
+      [...witnessNames].some((name) => !analysisNames.has(name));
+    if (mismatch) {
+      errors.push('"witnesses" array does not match "witnessAnalysis" entries');
+    }
+  }
+
+  return errors;
+}
+
+async function callModel(messages) {
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4.1-mini",
+    temperature: 0,
+    response_format: { type: "json_object" },
+    messages,
+  });
+  return completion.choices[0].message.content;
+}
+
+function parseAndValidate(raw) {
+  try {
+    const parsed = JSON.parse(raw);
+    return { parsed, errors: validateAnalysis(parsed) };
+  } catch (parseErr) {
+    return { parsed: null, errors: [`response was not valid JSON: ${parseErr.message}`] };
+  }
+}
+
 export const SUMMARY_SYSTEM_PROMPT = `
 You are an expert legal investigator.
 
@@ -128,19 +198,22 @@ Return ONLY JSON.
  * Generates a structured, evidence-grounded analysis of a case report:
  * entities, timeline, evidence with calibrated confidence, witness
  * credibility, contradictions, risk assessment, and a relationship graph.
+ *
+ * If the model's response is malformed JSON or violates our internal
+ * consistency rules, this automatically retries ONCE with a corrective
+ * message describing exactly what was wrong, before giving up. This is
+ * what stands between "the AI occasionally returns garbage" and "the app
+ * just breaks when that happens."
  */
 export async function generateCaseSummary(caseContent) {
+  const baseMessages = [
+    { role: "system", content: SUMMARY_SYSTEM_PROMPT },
+    { role: "user", content: caseContent },
+  ];
+
+  let raw;
   try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4.1-mini",
-      temperature: 0, // minimize run-to-run drift on identical input -- see README note on confidence score stability
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: SUMMARY_SYSTEM_PROMPT },
-        { role: "user", content: caseContent },
-      ],
-    });
-    return JSON.parse(completion.choices[0].message.content);
+    raw = await callModel(baseMessages);
   } catch (err) {
     if (err.status === 429) {
       throw new RateLimitError(
@@ -149,6 +222,43 @@ export async function generateCaseSummary(caseContent) {
     }
     throw err;
   }
+
+  const first = parseAndValidate(raw);
+  if (first.errors.length === 0) {
+    return first.parsed;
+  }
+
+  console.warn("AI analysis failed validation, retrying once:", first.errors);
+
+  let retryRaw;
+  try {
+    retryRaw = await callModel([
+      ...baseMessages,
+      { role: "assistant", content: raw },
+      {
+        role: "user",
+        content: `Your previous response had these problems: ${first.errors.join(
+          "; "
+        )}. Return corrected, complete, valid JSON matching the required structure exactly.`,
+      },
+    ]);
+  } catch (err) {
+    if (err.status === 429) {
+      throw new RateLimitError(
+        "AI analysis is temporarily unavailable because the AI service has reached its usage limit."
+      );
+    }
+    throw err;
+  }
+
+  const retry = parseAndValidate(retryRaw);
+  if (retry.errors.length === 0) {
+    return retry.parsed;
+  }
+
+  throw new InvalidAnalysisError(
+    `AI returned invalid analysis after retry: ${retry.errors.join("; ")}`
+  );
 }
 
 export const SEARCH_SYSTEM_PROMPT = `

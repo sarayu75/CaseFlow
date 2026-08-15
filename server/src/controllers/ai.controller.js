@@ -1,6 +1,6 @@
 import { prisma } from "../lib/prisma.js";
 import * as aiService from "../services/ai.service.js";
-import { RateLimitError } from "../services/ai.service.js";
+import { RateLimitError, InvalidAnalysisError } from "../services/ai.service.js";
 
 export async function postSummary(req, res) {
   const { id } = req.params;
@@ -18,13 +18,19 @@ export async function postSummary(req, res) {
       if (err instanceof RateLimitError) {
         return res.status(503).json({ error: err.message, unavailable: true });
       }
+      if (err instanceof InvalidAnalysisError) {
+        console.error("AI returned invalid analysis after retry:", err.message);
+        return res.status(502).json({
+          error: "AI analysis failed validation after a retry. Please try again.",
+        });
+      }
       console.error("OpenAI Summary Error:", err.message);
       return res.status(500).json({ error: "Failed to generate AI analysis." });
     }
 
     const updatedCase = await prisma.case.update({
-    where: { id: Number(id) },
-    data: { analysis: summary, analyzedAt: new Date() },
+      where: { id: Number(id) },
+      data: { analysis: summary, analyzedAt: new Date() },
     });
     res.json(updatedCase);
   } catch (err) {
