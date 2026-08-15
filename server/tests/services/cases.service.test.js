@@ -102,7 +102,12 @@ describe("updateCase", () => {
 
     expect(prisma.case.update).toHaveBeenCalledWith({
       where: { id: 1 },
-      data: { title: "New title", content: "New content", status: "Closed" },
+      data: {
+        title: "New title",
+        content: "New content",
+        status: "Closed",
+        contentUpdatedAt: expect.any(Date),
+      },
     });
   });
 });
