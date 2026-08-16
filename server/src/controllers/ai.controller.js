@@ -1,11 +1,24 @@
 import { prisma } from "../lib/prisma.js";
 import * as aiService from "../services/ai.service.js";
 import { RateLimitError, InvalidAnalysisError } from "../services/ai.service.js";
+import { incrementAndCheckUsage, UsageLimitError } from "../services/usage.service.js";
 
 export async function postSummary(req, res) {
   const { id } = req.params;
 
   try {
+    // Check the usage cap BEFORE doing anything else -- including before
+    // even looking up the case -- so a call that would exceed the limit
+    // never gets anywhere near an actual OpenAI request.
+    try {
+      await incrementAndCheckUsage();
+    } catch (err) {
+      if (err instanceof UsageLimitError) {
+        return res.status(429).json({ error: err.message, limitReached: true });
+      }
+      throw err;
+    }
+
     const caseData = await prisma.case.findUnique({ where: { id: Number(id) } });
     if (!caseData) {
       return res.status(404).json({ error: "Case not found" });
@@ -44,6 +57,16 @@ export async function postAskCaseflow(req, res) {
 
   if (!query) {
     return res.status(400).json({ error: "Query is required" });
+  }
+
+  try {
+    await incrementAndCheckUsage();
+  } catch (err) {
+    if (err instanceof UsageLimitError) {
+      return res.status(429).json({ error: err.message, limitReached: true });
+    }
+    console.error("Usage counter error:", err.message);
+    return res.status(500).json({ error: "Failed to process CaseFlow search" });
   }
 
   try {

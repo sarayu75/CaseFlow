@@ -6,6 +6,10 @@ vi.mock("../../src/lib/prisma.js", () => ({
     case: {
       findMany: vi.fn(),
     },
+    usageCounter: {
+      upsert: vi.fn().mockResolvedValue({ id: 1, count: 0 }),
+      update: vi.fn().mockResolvedValue({ id: 1, count: 1 }),
+    },
   },
 }));
 

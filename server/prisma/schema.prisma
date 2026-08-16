@@ -24,3 +24,11 @@ model Case {
   contentUpdatedAt DateTime? // explicitly set ONLY when title/content actually change (see cases.service.js updateCase) -- this is what staleness detection actually compares against analyzedAt
   analyzedAt DateTime? // explicitly set ONLY when AI analysis is (re)generated
 }
+
+// A single-row counter tracking total AI calls made (both analysis
+// generation and search), enforced as a hard cap independent of OpenAI's
+// own billing limits -- a second, code-controlled backstop.
+model UsageCounter {
+  id    Int @id @default(1)
+  count Int @default(0)
+}
