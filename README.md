@@ -1,5 +1,7 @@
 # CaseFlow
 
+**[Live Demo](https://caseflow-demo.netlify.app)** — try it yourself, no login required.
+
 CaseFlow is a full-stack legal case investigation assistant. You input a
 case report — witness statements, evidence, timeline of events — and it
 generates a structured investigative analysis: entity extraction, a
@@ -114,9 +116,13 @@ suite with zero external setup. Coverage includes:
 
 ## Known limitations (deliberate scope cuts, not oversights)
 
-- **No authentication.** Any client can hit any endpoint. Fine for a
-  local portfolio demo; a real deployment would need auth (e.g. sessions
-  or JWT) before this touches real case data.
+- **No authentication.** Any client can hit any endpoint — including the
+  live deployed version, which has no login and a single shared
+  database. Anyone with the link can create, edit, or delete cases; the
+  usage cap and rate limiting protect against cost abuse, but not against
+  someone modifying demo data. This is a deliberate scope decision for a
+  portfolio project, not an oversight — a real deployment handling actual
+  case data would need real auth (sessions or JWT) before going live.
 - **CORS is wide open (`origin: "*"`).** Same reasoning — acceptable for
   local development, would need a real allowlist before any public
   deployment.
